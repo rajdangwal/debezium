@@ -58,7 +58,7 @@
         <maven.compiler.release>11</maven.compiler.release>
         <maven.compiler.testRelease>11</maven.compiler.testRelease>
 
-        <!-- Enforce JDK 11 for building (handled via JBoss parent POM)-->
+        <!-- Enforce JDK 11 for building (handled via JBoss parent POM) fafdsds-->
         <jdk.min.version>11</jdk.min.version>
 
         <!-- Maven Plugins -->
