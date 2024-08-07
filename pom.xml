@@ -133,7 +133,7 @@
         <version.cassandra3>3.11.12</version.cassandra3>
         <version.cassandra4>4.0.2</version.cassandra4>
 
-        <!-- Required in protoc plug-in config, too; can't be in BOM therefore -->
+        <!-- Required in protoc plug-in config, too; can't be in BOM therefore dfsaffa-->
         <version.com.google.protobuf>3.19.2</version.com.google.protobuf>
     </properties>
 
