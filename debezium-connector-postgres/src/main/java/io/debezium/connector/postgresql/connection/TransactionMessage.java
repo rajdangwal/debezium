@@ -21,11 +21,13 @@ public class TransactionMessage implements ReplicationMessage {
     private final long transactionId;
     private final Instant commitTime;
     private final Operation operation;
+    private final Lsn finalLsn;
 
-    public TransactionMessage(Operation operation, long transactionId, Instant commitTime) {
+    public TransactionMessage(Operation operation, long transactionId, Instant commitTime, Lsn finalLsn) {
         this.operation = operation;
         this.transactionId = transactionId;
         this.commitTime = commitTime;
+        this.finalLsn = finalLsn;
     }
 
     @Override
@@ -64,8 +66,13 @@ public class TransactionMessage implements ReplicationMessage {
     }
 
     @Override
+    public Lsn getFinalLsn() {
+        return finalLsn;
+    }
+
+    @Override
     public String toString() {
         return "TransactionMessage [transactionId=" + transactionId + ", commitTime=" + commitTime + ", operation="
-                + operation + "]";
+                + operation + ", finalLsn=" + finalLsn + "]";
     }
 }

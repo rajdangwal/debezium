@@ -76,6 +76,8 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
      */
     private Long transactionId;
 
+    private Lsn finalLsn;
+
     public enum MessageType {
         RELATION,
         BEGIN,
@@ -250,14 +252,14 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
      * @param processor The replication message processor
      */
     private void handleBeginMessage(ByteBuffer buffer, ReplicationMessageProcessor processor) throws SQLException, InterruptedException {
-        final Lsn lsn = Lsn.valueOf(buffer.getLong()); // LSN
+        this.finalLsn = Lsn.valueOf(buffer.getLong()); // LSN
         this.commitTimestamp = PG_EPOCH.plus(buffer.getLong(), ChronoUnit.MICROS);
         this.transactionId = Integer.toUnsignedLong(buffer.getInt());
         LOGGER.trace("Event: {}", MessageType.BEGIN);
-        LOGGER.trace("Final LSN of transaction: {}", lsn);
+        LOGGER.trace("Final LSN of transaction: {}", finalLsn);
         LOGGER.trace("Commit timestamp of transaction: {}", commitTimestamp);
         LOGGER.trace("XID of transaction: {}", transactionId);
-        processor.process(new TransactionMessage(Operation.BEGIN, transactionId, commitTimestamp));
+        processor.process(new TransactionMessage(Operation.BEGIN, transactionId, commitTimestamp, finalLsn));
     }
 
     /**
@@ -268,15 +270,15 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
      */
     private void handleCommitMessage(ByteBuffer buffer, ReplicationMessageProcessor processor) throws SQLException, InterruptedException {
         int flags = buffer.get(); // flags, currently unused
-        final Lsn lsn = Lsn.valueOf(buffer.getLong()); // LSN of the commit
+        final Lsn finalLsn = Lsn.valueOf(buffer.getLong()); // LSN of the commit
         final Lsn endLsn = Lsn.valueOf(buffer.getLong()); // End LSN of the transaction
         Instant commitTimestamp = PG_EPOCH.plus(buffer.getLong(), ChronoUnit.MICROS);
         LOGGER.trace("Event: {}", MessageType.COMMIT);
         LOGGER.trace("Flags: {} (currently unused and most likely 0)", flags);
-        LOGGER.trace("Commit LSN: {}", lsn);
+        LOGGER.trace("Commit LSN: {}", finalLsn);
         LOGGER.trace("End LSN of transaction: {}", endLsn);
         LOGGER.trace("Commit timestamp of transaction: {}", commitTimestamp);
-        processor.process(new TransactionMessage(Operation.COMMIT, transactionId, commitTimestamp));
+        processor.process(new TransactionMessage(Operation.COMMIT, transactionId, commitTimestamp, finalLsn));
     }
 
     /**
@@ -405,7 +407,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
 
         // non-captured table
         if (!resolvedTable.isPresent()) {
-            processor.process(new NoopMessage(transactionId, commitTimestamp, Operation.INSERT));
+            processor.process(new NoopMessage(transactionId, commitTimestamp, Operation.INSERT, finalLsn));
         }
         else {
             Table table = resolvedTable.get();
@@ -416,7 +418,8 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
                     commitTimestamp,
                     transactionId,
                     null,
-                    columns));
+                    columns,
+                    finalLsn));
         }
     }
 
@@ -436,7 +439,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
 
         // non-captured table
         if (!resolvedTable.isPresent()) {
-            processor.process(new NoopMessage(transactionId, commitTimestamp, Operation.UPDATE));
+            processor.process(new NoopMessage(transactionId, commitTimestamp, Operation.UPDATE, finalLsn));
         }
         else {
             Table table = resolvedTable.get();
@@ -463,7 +466,8 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
                     commitTimestamp,
                     transactionId,
                     oldColumns,
-                    columns));
+                    columns,
+                    finalLsn));
         }
     }
 
@@ -485,7 +489,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
 
         // non-captured table
         if (!resolvedTable.isPresent()) {
-            processor.process(new NoopMessage(transactionId, commitTimestamp, Operation.DELETE));
+            processor.process(new NoopMessage(transactionId, commitTimestamp, Operation.DELETE, finalLsn));
         }
         else {
             Table table = resolvedTable.get();
@@ -496,7 +500,8 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
                     commitTimestamp,
                     transactionId,
                     columns,
-                    null));
+                    null,
+                    finalLsn));
         }
     }
 
@@ -548,7 +553,8 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
                     table.id().toDoubleQuotedString(),
                     commitTimestamp,
                     transactionId,
-                    lastTableInTruncate));
+                    lastTableInTruncate,
+                    finalLsn));
         }
     }
 

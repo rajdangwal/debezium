@@ -12,6 +12,7 @@ import java.util.OptionalLong;
 import io.debezium.connector.postgresql.PostgresStreamingChangeEventSource.PgConnectionSupplier;
 import io.debezium.connector.postgresql.PostgresType;
 import io.debezium.connector.postgresql.TypeRegistry;
+import io.debezium.connector.postgresql.connection.Lsn;
 import io.debezium.connector.postgresql.connection.ReplicationMessage;
 import io.debezium.connector.postgresql.connection.ReplicationMessageColumnValueResolver;
 
@@ -27,14 +28,17 @@ public class PgOutputReplicationMessage implements ReplicationMessage {
     private String table;
     private List<Column> oldColumns;
     private List<Column> newColumns;
+    private Lsn finalLsn;
 
-    public PgOutputReplicationMessage(Operation op, String table, Instant commitTimestamp, Long transactionId, List<Column> oldColumns, List<Column> newColumns) {
+    public PgOutputReplicationMessage(Operation op, String table, Instant commitTimestamp, Long transactionId, List<Column> oldColumns, List<Column> newColumns,
+                                      Lsn finalLsn) {
         this.op = op;
         this.commitTimestamp = commitTimestamp;
         this.transactionId = transactionId;
         this.table = table;
         this.oldColumns = oldColumns;
         this.newColumns = newColumns;
+        this.finalLsn = finalLsn;
     }
 
     @Override
@@ -75,6 +79,11 @@ public class PgOutputReplicationMessage implements ReplicationMessage {
     @Override
     public boolean shouldSchemaBeSynchronized() {
         return false;
+    }
+
+    @Override
+    public Lsn getFinalLsn() {
+        return finalLsn;
     }
 
     /**

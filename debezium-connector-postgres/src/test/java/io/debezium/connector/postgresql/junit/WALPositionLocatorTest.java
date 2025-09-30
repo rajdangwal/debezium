@@ -349,14 +349,14 @@ public class WALPositionLocatorTest {
     // =============================================================================
 
     private ReplicationMessage createBeginMessage(long txId) {
-        return new TransactionMessage(ReplicationMessage.Operation.BEGIN, txId, Instant.now());
+        return new TransactionMessage(ReplicationMessage.Operation.BEGIN, txId, Instant.now(), null);
     }
 
     private ReplicationMessage createCommitMessage(long txId) {
-        return new TransactionMessage(ReplicationMessage.Operation.COMMIT, txId, Instant.now());
+        return new TransactionMessage(ReplicationMessage.Operation.COMMIT, txId, Instant.now(), null);
     }
 
     private ReplicationMessage createInsertMessage(long txId) {
-        return new ReplicationMessage.NoopMessage(txId, Instant.now(), ReplicationMessage.Operation.INSERT);
+        return new ReplicationMessage.NoopMessage(txId, Instant.now(), ReplicationMessage.Operation.INSERT, null);
     }
 }

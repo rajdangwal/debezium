@@ -301,6 +301,14 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
                     null,
                     message.getOperation());
 
+            // Handle BEGIN message to update finalLsn
+            if (message.getOperation() == Operation.BEGIN) {
+                Lsn finalLsn = message.getFinalLsn();
+                if (finalLsn != null) {
+                    offsetContext.updateTransactionFinalLsn(finalLsn);
+                }
+            }
+
             if (!connectorConfig.shouldProvideTransactionMetadata()) {
                 LOGGER.trace("Received transactional message {}", message);
                 // Don't skip on BEGIN message as it would flush LSN for the whole transaction

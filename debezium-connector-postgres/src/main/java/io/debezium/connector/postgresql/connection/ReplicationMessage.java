@@ -194,6 +194,13 @@ public interface ReplicationMessage {
     }
 
     /**
+     * @return The final LSN of the transaction, available for BEGIN messages, null for other message types
+     */
+    default Lsn getFinalLsn() {
+        return null;
+    }
+
+    /**
      * A special message type that is used to replace event filtered already at {@link MessageDecoder}.
      * Enables {@link PostgresStreamingChangeEventSource} to advance LSN forward even in case of such messages.
      */
@@ -202,11 +209,13 @@ public interface ReplicationMessage {
         private final Long transactionId;
         private final Instant commitTime;
         private final Operation operation;
+        private final Lsn finalLsn;
 
-        public NoopMessage(Long transactionId, Instant commitTime, Operation operation) {
+        public NoopMessage(Long transactionId, Instant commitTime, Operation operation, Lsn finalLsn) {
             this.operation = operation;
             this.transactionId = transactionId;
             this.commitTime = commitTime;
+            this.finalLsn = finalLsn;
         }
 
         @Override

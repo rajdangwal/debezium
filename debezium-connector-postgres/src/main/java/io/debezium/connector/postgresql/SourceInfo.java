@@ -80,6 +80,7 @@ public final class SourceInfo extends BaseSourceInfo {
     public static final String TXID_KEY = "txId";
     public static final String XMIN_KEY = "xmin";
     public static final String LSN_KEY = "lsn";
+    public static final String FINAL_LSN_KEY = "final_lsn";
     public static final String MSG_TYPE_KEY = "messageType";
     public static final String LAST_SNAPSHOT_RECORD_KEY = "last_snapshot_record";
 
@@ -89,6 +90,7 @@ public final class SourceInfo extends BaseSourceInfo {
 
     private Lsn lsn;
     private Lsn lastCommitLsn;
+    private Lsn finalLsn;
     private Long txId;
     private Long xmin;
     private Operation messageType;
@@ -161,8 +163,23 @@ public final class SourceInfo extends BaseSourceInfo {
         return this;
     }
 
+    /**
+     * Updates the source with transaction's final LSN from BEGIN message.
+     *
+     * @param finalLsn the final LSN of the transaction
+     * @return this instance
+     */
+    protected SourceInfo updateFinalLsn(Lsn finalLsn) {
+        this.finalLsn = finalLsn;
+        return this;
+    }
+
     public Lsn lsn() {
         return this.lsn;
+    }
+
+    public Lsn finalLsn() {
+        return this.finalLsn;
     }
 
     public Long xmin() {
@@ -233,6 +250,9 @@ public final class SourceInfo extends BaseSourceInfo {
         }
         if (lastCommitLsn != null) {
             sb.append(", lastCommitLsn=").append(lastCommitLsn);
+        }
+        if (finalLsn != null) {
+            sb.append(", finalLsn=").append(finalLsn);
         }
         if (timestamp != null) {
             sb.append(", timestamp=").append(timestamp);

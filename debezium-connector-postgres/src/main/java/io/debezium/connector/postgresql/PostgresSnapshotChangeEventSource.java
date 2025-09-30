@@ -159,7 +159,7 @@ public class PostgresSnapshotChangeEventSource extends RelationalSnapshotChangeE
                 // The previousOffset variable is shared between the catch up streaming and snapshot phases and
                 // has the latest known offset state.
                 offset = PostgresOffsetContext.initialContext(connectorConfig, jdbcConnection, getClock(),
-                        previousOffset.lastCommitLsn(), previousOffset.lastCompletelyProcessedLsn());
+                        previousOffset.lastCommitLsn(), previousOffset.lastCompletelyProcessedLsn(), previousOffset.finalLsn());
             }
             else {
                 offset = PostgresOffsetContext.initialContext(connectorConfig, jdbcConnection, getClock());
