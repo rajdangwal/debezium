@@ -413,7 +413,7 @@ public class PostgresConnectorTask extends BaseSourceTask<PostgresPartition, Pos
 
     @Override
     public void commitRecord(SourceRecord record, RecordMetadata metadata) throws InterruptedException {
-        // Do nothing
+        LOGGER.info("Record is {} and offset is {}", record, metadata.offset());
     }
 
     @Override
