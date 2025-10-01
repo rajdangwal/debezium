@@ -39,8 +39,20 @@ public interface ReplicationConnection extends AutoCloseable {
      *
      * @return a {@link PGReplicationStream} from which data is read; never null
      * @throws SQLException if there is a problem obtaining the replication stream
+     * @deprecated Use {@link #startStreaming()} instead
      */
-    ReplicationStream startStreaming(WalPositionLocator walPosition) throws SQLException, InterruptedException;
+    @Deprecated
+    default ReplicationStream startStreaming(WalPositionLocator walPosition) throws SQLException, InterruptedException {
+        return startStreaming();
+    }
+    
+    /**
+     * Opens a stream for reading logical replication changes from the last known position of the slot.
+     *
+     * @return a {@link PGReplicationStream} from which data is read; never null
+     * @throws SQLException if there is a problem obtaining the replication stream
+     */
+    ReplicationStream startStreaming() throws SQLException, InterruptedException;
 
     /**
      * Opens a stream for reading logical replication changes from a given LSN position.
@@ -54,8 +66,27 @@ public interface ReplicationConnection extends AutoCloseable {
      * @return a {@link PGReplicationStream} from which data is read; never null
      * @see org.postgresql.replication.LogSequenceNumber
      * @throws SQLException if anything fails
+     * @deprecated Use {@link #startStreaming(Lsn)} instead
      */
-    ReplicationStream startStreaming(Lsn offset, WalPositionLocator walPosition) throws SQLException, InterruptedException;
+    @Deprecated  
+    default ReplicationStream startStreaming(Lsn offset, WalPositionLocator walPosition) throws SQLException, InterruptedException {
+        return startStreaming(offset);
+    }
+    
+    /**
+     * Opens a stream for reading logical replication changes from a given LSN position.
+     * <p>
+     * Note that it is possible for a server to have recycled old WAL segments (see the {@code wal_keep_segments} setting). If
+     * that is the case, then even though a LSN number may be valid, the server will not stream back any changes because they
+     * are not available.
+     * </p>
+     * @param offset a value representing the WAL sequence number where replication should start from; if the value
+     * is {@code null} or negative, this behaves exactly like {@link #startStreaming()}.
+     * @return a {@link PGReplicationStream} from which data is read; never null
+     * @see org.postgresql.replication.LogSequenceNumber
+     * @throws SQLException if anything fails
+     */
+    ReplicationStream startStreaming(Lsn offset) throws SQLException, InterruptedException;
 
     /**
      * Creates a new replication slot with the given option and returns the result of the command, which

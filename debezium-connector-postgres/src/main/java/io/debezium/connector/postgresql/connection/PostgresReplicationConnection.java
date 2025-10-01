@@ -668,6 +668,16 @@ public class PostgresReplicationConnection extends JdbcConnection implements Rep
     public ReplicationStream startStreaming(WalPositionLocator walPosition) throws SQLException, InterruptedException {
         return startStreaming(null, walPosition);
     }
+    
+    @Override
+    public ReplicationStream startStreaming() throws SQLException, InterruptedException {
+        return startStreaming((Lsn) null);
+    }
+    
+    @Override
+    public ReplicationStream startStreaming(Lsn offset) throws SQLException, InterruptedException {
+        return startStreaming(offset, null);
+    }
 
     @Override
     public ReplicationStream startStreaming(Lsn offset, WalPositionLocator walPosition) throws SQLException, InterruptedException {

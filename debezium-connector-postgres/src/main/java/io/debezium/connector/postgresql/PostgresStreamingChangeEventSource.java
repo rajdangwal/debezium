@@ -32,7 +32,7 @@ import io.debezium.connector.postgresql.connection.ReplicationConnection;
 import io.debezium.connector.postgresql.connection.ReplicationMessage;
 import io.debezium.connector.postgresql.connection.ReplicationMessage.Operation;
 import io.debezium.connector.postgresql.connection.ReplicationStream;
-import io.debezium.connector.postgresql.connection.WalPositionLocator;
+import io.debezium.connector.postgresql.connection.WalPosition;
 import io.debezium.heartbeat.Heartbeat;
 import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
@@ -151,29 +151,34 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
 
         lsnFlushingAllowed = false;
 
-        // replication slot could exist at the time of starting Debezium, so we will stream from the position in the slot
-        // instead of the last position in the database
-        boolean hasStartLsnStoredInContext = offsetContext != null;
-
         try {
-            final WalPositionLocator walPosition;
-
-            if (hasStartLsnStoredInContext) {
-                // start streaming from the last recorded position in the offset
-                final Lsn lsn = this.effectiveOffset.hasCompletelyProcessedPosition() ? this.effectiveOffset.lastCompletelyProcessedLsn()
+            final Lsn startLsn;
+            final WalPosition lastProcessedPosition;
+            
+            if (offsetContext != null && offsetContext.hasLastKnownPosition()) {
+                // Resume from the last known position
+                startLsn = this.effectiveOffset.hasCompletelyProcessedPosition() 
+                        ? this.effectiveOffset.lastCompletelyProcessedLsn()
                         : this.effectiveOffset.lsn();
-                final Operation lastProcessedMessageType = this.effectiveOffset.lastProcessedMessageType();
-                LOGGER.info("Retrieved latest position from stored offset '{}'", lsn);
-                walPosition = new WalPositionLocator(this.effectiveOffset.lastCommitLsn(), lsn, lastProcessedMessageType);
-                replicationStream.compareAndSet(null, replicationConnection.startStreaming(lsn, walPosition));
+                        
+                lastProcessedPosition = WalPosition.fromOffset(
+                        this.effectiveOffset.finalLsn(), 
+                        this.effectiveOffset.lastCompletelyProcessedLsn() != null 
+                            ? this.effectiveOffset.lastCompletelyProcessedLsn()
+                            : this.effectiveOffset.lsn()
+                );
+                
+                LOGGER.info("Resuming streaming from position: finalLsn={}, lsn={}", 
+                        lastProcessedPosition.getFinalLsn(), lastProcessedPosition.getLsn());
+                replicationStream.compareAndSet(null, replicationConnection.startStreaming(startLsn));
             }
             else {
-                LOGGER.info("No previous LSN found in Kafka, streaming from the latest xlogpos or flushed LSN...");
-                walPosition = new WalPositionLocator();
-                replicationStream.compareAndSet(null, replicationConnection.startStreaming(walPosition));
+                LOGGER.info("No previous position found in offsets, streaming from the latest position...");
+                lastProcessedPosition = null;
+                replicationStream.compareAndSet(null, replicationConnection.startStreaming());
             }
 
-            // Start keep alive thread to prevent connection timeout during time-consuming operations the DB side.
+            // Start keep alive thread to prevent connection timeout
             ReplicationStream stream = this.replicationStream.get();
             stream.startKeepAlive(Threads.newSingleThreadExecutor(PostgresConnector.class, connectorConfig.getLogicalName(), KEEP_ALIVE_THREAD_NAME));
 
@@ -185,24 +190,8 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
 
             this.lastCompletelyProcessedLsn = replicationStream.get().startLsn();
 
-            if (walPosition.searchingEnabled() && this.effectiveOffset.hasCompletelyProcessedPosition()) {
-                searchWalPosition(context, partition, this.effectiveOffset, stream, walPosition);
-                try {
-                    if (!isInPreSnapshotCatchUpStreaming(this.effectiveOffset)) {
-                        connection.commit();
-                    }
-                }
-                catch (Exception e) {
-                    LOGGER.info("Commit failed while preparing for reconnect", e);
-                }
-                walPosition.enableFiltering();
-                stream.stopKeepAlive();
-                replicationConnection.reconnect();
-                replicationStream.set(replicationConnection.startStreaming(walPosition.getLastEventStoredLsn(), walPosition));
-                stream = this.replicationStream.get();
-                stream.startKeepAlive(Threads.newSingleThreadExecutor(PostgresConnector.class, connectorConfig.getLogicalName(), KEEP_ALIVE_THREAD_NAME));
-            }
-            processMessages(context, partition, this.effectiveOffset, stream);
+            // Process messages with automatic skipping of already-processed events
+            processMessages(context, partition, this.effectiveOffset, stream, lastProcessedPosition);
         }
         catch (Throwable e) {
             errorHandler.setProducerThrowable(e);
@@ -244,14 +233,16 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
                 (lastCompletelyProcessedLsn.compareTo(offsetContext.getStreamingStoppingLsn()) < 0);
     }
 
-    private void processMessages(ChangeEventSourceContext context, PostgresPartition partition, PostgresOffsetContext offsetContext, final ReplicationStream stream)
+    private void processMessages(ChangeEventSourceContext context, PostgresPartition partition, PostgresOffsetContext offsetContext, 
+                                 final ReplicationStream stream, final WalPosition lastProcessedPosition)
             throws SQLException, InterruptedException {
         LOGGER.info("Processing messages");
         int noMessageIterations = 0;
         while (context.isRunning()
                 && haveNotReceivedStreamingStoppingLsn(offsetContext, lastCompletelyProcessedLsn)
                 && !commitOffsetFailure) {
-            boolean receivedMessage = stream.readPending(message -> processReplicationMessages(partition, offsetContext, stream, message));
+            boolean receivedMessage = stream.readPending(message -> 
+                processReplicationMessages(partition, offsetContext, stream, message, lastProcessedPosition));
 
             probeConnectionIfNeeded();
 
@@ -284,11 +275,20 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
         }
     }
 
-    private void processReplicationMessages(PostgresPartition partition, PostgresOffsetContext offsetContext, ReplicationStream stream, ReplicationMessage message)
+    private void processReplicationMessages(PostgresPartition partition, PostgresOffsetContext offsetContext, 
+                                           ReplicationStream stream, ReplicationMessage message, 
+                                           WalPosition lastProcessedPosition)
             throws SQLException, InterruptedException {
 
         final Lsn lsn = stream.lastReceivedLsn();
         LOGGER.trace("Processing replication message {}", message);
+        
+        // Check if we should skip this message
+        if (lastProcessedPosition != null && shouldSkipMessage(message, lsn, offsetContext, lastProcessedPosition)) {
+            LOGGER.trace("Skipping already processed message at LSN {}, finalLsn={}", lsn, offsetContext.finalLsn());
+            return;
+        }
+        
         if (message.isLastEventForLsn()) {
             lastCompletelyProcessedLsn = lsn;
         }
@@ -378,35 +378,36 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
         }
     }
 
-    private void searchWalPosition(ChangeEventSourceContext context, PostgresPartition partition, PostgresOffsetContext offsetContext,
-                                   final ReplicationStream stream, final WalPositionLocator walPosition)
-            throws SQLException, InterruptedException {
-        AtomicReference<Lsn> resumeLsn = new AtomicReference<>();
-        int noMessageIterations = 0;
-
-        LOGGER.info("Searching for WAL resume position");
-        while (context.isRunning() && resumeLsn.get() == null) {
-
-            boolean receivedMessage = stream.readPending(message -> {
-                final Lsn lsn = stream.lastReceivedLsn();
-                resumeLsn.set(walPosition.resumeFromLsn(lsn, message).orElse(null));
-            });
-
-            if (receivedMessage) {
-                noMessageIterations = 0;
-            }
-            else {
-                dispatcher.dispatchHeartbeatEvent(partition, offsetContext);
-                noMessageIterations++;
-                if (noMessageIterations >= THROTTLE_NO_MESSAGE_BEFORE_PAUSE) {
-                    noMessageIterations = 0;
-                    pauseNoMessage.sleepWhen(true);
-                }
-            }
-
-            probeConnectionIfNeeded();
+    /**
+     * Determines if a message should be skipped based on the last processed position.
+     * 
+     * @param message The replication message to check
+     * @param lsn The LSN of the current message
+     * @param offsetContext The current offset context
+     * @param lastProcessedPosition The last successfully processed position
+     * @return true if the message should be skipped, false otherwise
+     */
+    private boolean shouldSkipMessage(ReplicationMessage message, Lsn lsn, 
+                                     PostgresOffsetContext offsetContext, 
+                                     WalPosition lastProcessedPosition) {
+        // For BEGIN messages, get finalLsn from the message itself
+        Lsn currentFinalLsn = offsetContext.finalLsn();
+        if (message.getOperation() == Operation.BEGIN) {
+            currentFinalLsn = message.getFinalLsn();
         }
-        LOGGER.info("WAL resume position '{}' discovered", resumeLsn.get());
+        
+        // Create current position
+        WalPosition currentPosition = WalPosition.fromOffset(currentFinalLsn, lsn);
+        
+        // Skip if current position is before or equal to last processed position
+        boolean shouldSkip = currentPosition.isBeforeOrEqual(lastProcessedPosition);
+        
+        if (shouldSkip && LOGGER.isDebugEnabled()) {
+            LOGGER.debug("Skipping message at position {} (last processed: {})", 
+                        currentPosition, lastProcessedPosition);
+        }
+        
+        return shouldSkip;
     }
 
     private void probeConnectionIfNeeded() throws SQLException {
