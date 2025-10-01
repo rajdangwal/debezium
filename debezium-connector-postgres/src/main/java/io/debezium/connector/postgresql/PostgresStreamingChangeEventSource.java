@@ -336,6 +336,7 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
 
             // non-transactional message that will not be followed by a COMMIT message
             if (message.isLastEventForLsn()) {
+                offsetContext.updateTransactionFinalLsn(lsn);
                 commitMessage(partition, offsetContext, lsn);
             }
 
